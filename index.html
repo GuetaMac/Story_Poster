@@ -954,6 +954,36 @@
           hex: "#f3efe6",
         },
       ];
+      const RATIOS = [
+        {
+          id: "portrait",
+          label: "Portrait",
+          sub: "1080×1350 · IG",
+          w: 1080,
+          h: 1350,
+        },
+        {
+          id: "landscape",
+          label: "16:9",
+          sub: "1920×1080 · YouTube",
+          w: 1920,
+          h: 1080,
+        },
+        {
+          id: "square",
+          label: "Square",
+          sub: "1080×1080",
+          w: 1080,
+          h: 1080,
+        },
+        {
+          id: "a4",
+          label: "A4 Print",
+          sub: "2480×3508 · 300dpi",
+          w: 2480,
+          h: 3508,
+        },
+      ];
       const FONT_SPECS = [
         '400 68px "Bebas Neue"',
         '400 62px "Bebas Neue"',
@@ -2068,6 +2098,7 @@
         const [thumbUrl, setThumbUrl] = useState(null);
         const [style, setStyle] = useState("bold");
         const [accent, setAccent] = useState("amber");
+        const [ratio, setRatio] = useState("portrait");
         const [fetchState, setFetchState] = useState({
           msg: "",
           error: false,
@@ -2136,14 +2167,22 @@
           await ensureFonts();
           const canvas = canvasRef.current;
           const ctx = canvas.getContext("2d");
-          const W = canvas.width,
-            H = canvas.height;
+          const r = RATIOS.find((x) => x.id === ratio) || RATIOS[0];
+          canvas.width = r.w;
+          canvas.height = r.h;
+          const pxScale = r.w / 1080;
+          const W = 1080;
+          const H = r.h / pxScale;
           const img = new Image();
           img.crossOrigin = "anonymous";
           const accentHex = (ACCENTS.find((a) => a.id === accent) || {}).hex;
           img.onload = () => {
-            ctx.clearRect(0, 0, W, H);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, r.w, r.h);
+            ctx.save();
+            ctx.scale(pxScale, pxScale);
             DRAWERS[style](ctx, W, H, img, title, channel, accentHex);
+            ctx.restore();
             setReady(true);
             setGenState({
               msg: "Ready ✓",
@@ -2159,7 +2198,7 @@
             });
           };
           img.src = thumbUrl;
-        }, [thumbUrl, style, title, channel, accent]);
+        }, [thumbUrl, style, title, channel, accent, ratio]);
         const handleDownload = useCallback(() => {
           try {
             const uri = canvasRef.current.toDataURL("image/png");
@@ -2222,7 +2261,8 @@
                   {
                     className: "text-[#c9c2b4]",
                   },
-                  "1080 × 1350 · PNG",
+                  (RATIOS.find((r) => r.id === ratio) || RATIOS[0]).sub +
+                    " · PNG",
                 ),
               ),
             ),
@@ -2375,6 +2415,40 @@
                   Step,
                   {
                     n: "05",
+                    done: true,
+                    title: "Poster size",
+                  },
+                  /*#__PURE__*/ React.createElement(
+                    "div",
+                    {
+                      className: "style-scroll",
+                    },
+                    RATIOS.map((r) =>
+                      /*#__PURE__*/ React.createElement(
+                        "button",
+                        {
+                          key: r.id,
+                          className:
+                            "style-chip" + (ratio === r.id ? " active" : ""),
+                          title: r.sub,
+                          onClick: () => setRatio(r.id),
+                        },
+                        r.label,
+                      ),
+                    ),
+                  ),
+                  /*#__PURE__*/ React.createElement(
+                    "p",
+                    {
+                      className: "text-[11px] text-[#8f887a] mt-2 leading-snug",
+                    },
+                    (RATIOS.find((r) => r.id === ratio) || {}).sub,
+                  ),
+                ),
+                /*#__PURE__*/ React.createElement(
+                  Step,
+                  {
+                    n: "06",
                     done: ready,
                     title: "Render and export",
                   },
@@ -2423,12 +2497,18 @@
                   },
                   /*#__PURE__*/ React.createElement("canvas", {
                     ref: canvasRef,
-                    width: 1080,
-                    height: 1350,
+                    width: (RATIOS.find((r) => r.id === ratio) || RATIOS[0]).w,
+                    height: (RATIOS.find((r) => r.id === ratio) || RATIOS[0]).h,
                     className: "poster-shadow rounded-[2px]",
                     style: {
-                      width: "min(300px, 72vw)",
-                      aspectRatio: "4 / 5",
+                      width:
+                        ratio === "landscape"
+                          ? "min(420px, 82vw)"
+                          : "min(300px, 72vw)",
+                      aspectRatio:
+                        (RATIOS.find((r) => r.id === ratio) || RATIOS[0]).w +
+                        " / " +
+                        (RATIOS.find((r) => r.id === ratio) || RATIOS[0]).h,
                       height: "auto",
                       background: "#1c1a16",
                     },
