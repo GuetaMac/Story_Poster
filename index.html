@@ -743,6 +743,44 @@
           0 0 0 4px var(--amber);
       }
 
+      .style-scroll {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 8px;
+        margin-bottom: -2px;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+      }
+      .style-chip {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        padding: 9px 15px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--paper);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        scroll-snap-align: start;
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+      .style-chip:hover {
+        border-color: #5a5344;
+      }
+      .style-chip.active {
+        border-color: var(--amber);
+        background: rgba(226, 163, 59, 0.12);
+        color: var(--amber);
+      }
+      .style-scroll::-webkit-scrollbar {
+        height: 6px;
+      }
+
       .light-table {
         background:
           radial-gradient(
@@ -2008,6 +2046,7 @@
               "div",
               {
                 className: "flex-1 pb-8",
+                style: { minWidth: 0 },
               },
               /*#__PURE__*/ React.createElement(
                 "div",
@@ -2195,7 +2234,9 @@
               },
               /*#__PURE__*/ React.createElement(
                 "div",
-                null,
+                {
+                  style: { minWidth: 0 },
+                },
                 /*#__PURE__*/ React.createElement(
                   Step,
                   {
@@ -2281,7 +2322,7 @@
                   /*#__PURE__*/ React.createElement(
                     "div",
                     {
-                      className: "grid grid-cols-2 gap-2",
+                      className: "style-scroll",
                     },
                     STYLES.map((s) =>
                       /*#__PURE__*/ React.createElement(
@@ -2289,27 +2330,20 @@
                         {
                           key: s.id,
                           className:
-                            "swatch" + (style === s.id ? " active" : ""),
+                            "style-chip" + (style === s.id ? " active" : ""),
+                          title: s.hint,
                           onClick: () => setStyle(s.id),
                         },
-                        /*#__PURE__*/ React.createElement(
-                          "div",
-                          {
-                            className:
-                              "text-[12.5px] sm:text-[13px] font-semibold text-[#f3efe6]",
-                          },
-                          s.label,
-                        ),
-                        /*#__PURE__*/ React.createElement(
-                          "div",
-                          {
-                            className:
-                              "text-[10.5px] sm:text-[11px] text-[#8f887a] mt-0.5 leading-snug",
-                          },
-                          s.hint,
-                        ),
+                        s.label,
                       ),
                     ),
+                  ),
+                  /*#__PURE__*/ React.createElement(
+                    "p",
+                    {
+                      className: "text-[11px] text-[#8f887a] mt-2 leading-snug",
+                    },
+                    (STYLES.find((s) => s.id === style) || {}).hint,
                   ),
                 ),
                 /*#__PURE__*/ React.createElement(
