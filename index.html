@@ -834,12 +834,30 @@
           padding: 8px;
         }
       }
+
+      .visitor-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 5px 11px;
+        font-size: 11px;
+        color: var(--paper-dim);
+        background: var(--surface-2);
+      }
+      .visitor-pill .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script>
-      const { useState, useRef, useCallback } = React;
+      const { useState, useRef, useCallback, useEffect } = React;
       const STYLES = [
         {
           id: "bold",
@@ -2110,6 +2128,7 @@
           loading: false,
         });
         const [ready, setReady] = useState(false);
+        const [visitorCount, setVisitorCount] = useState(null);
         const canvasRef = useRef(null);
         const handleFetch = useCallback(async () => {
           const videoId = extractVideoId(url.trim());
@@ -2150,15 +2169,14 @@
             });
           }
         }, [url]);
-        const handleGenerate = useCallback(async () => {
-          if (!thumbUrl) {
-            setGenState({
-              msg: "Load a video first.",
-              error: true,
-              loading: false,
-            });
-            return;
-          }
+
+        // Renders the poster onto the canvas for the current settings. This
+        // used to be a manual "Generate poster" button click; now it's called
+        // automatically whenever the style, accent, size, title, channel or
+        // thumbnail changes (see the effect below), so the preview always
+        // matches what's picked and the only action left is downloading.
+        const renderPoster = useCallback(async () => {
+          if (!thumbUrl) return;
           setGenState({
             msg: "Rendering…",
             error: false,
@@ -2166,6 +2184,7 @@
           });
           await ensureFonts();
           const canvas = canvasRef.current;
+          if (!canvas) return;
           const ctx = canvas.getContext("2d");
           const r = RATIOS.find((x) => x.id === ratio) || RATIOS[0];
           canvas.width = r.w;
@@ -2176,29 +2195,47 @@
           const img = new Image();
           img.crossOrigin = "anonymous";
           const accentHex = (ACCENTS.find((a) => a.id === accent) || {}).hex;
-          img.onload = () => {
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.clearRect(0, 0, r.w, r.h);
-            ctx.save();
-            ctx.scale(pxScale, pxScale);
-            DRAWERS[style](ctx, W, H, img, title, channel, accentHex);
-            ctx.restore();
-            setReady(true);
-            setGenState({
-              msg: "Ready ✓",
-              error: false,
-              loading: false,
-            });
-          };
-          img.onerror = () => {
-            setGenState({
-              msg: "Thumbnail failed to load (network or CORS). Try again.",
-              error: true,
-              loading: false,
-            });
-          };
-          img.src = thumbUrl;
+          await new Promise((resolve) => {
+            img.onload = () => {
+              ctx.setTransform(1, 0, 0, 1, 0, 0);
+              ctx.clearRect(0, 0, r.w, r.h);
+              ctx.save();
+              ctx.scale(pxScale, pxScale);
+              DRAWERS[style](ctx, W, H, img, title, channel, accentHex);
+              ctx.restore();
+              setReady(true);
+              setGenState({
+                msg: "Ready ✓",
+                error: false,
+                loading: false,
+              });
+              resolve();
+            };
+            img.onerror = () => {
+              setGenState({
+                msg: "Thumbnail failed to load (network or CORS). Try again.",
+                error: true,
+                loading: false,
+              });
+              resolve();
+            };
+            img.src = thumbUrl;
+          });
         }, [thumbUrl, style, title, channel, accent, ratio]);
+
+        // Auto-render whenever anything the poster depends on changes, so
+        // picking a style/color/size (or editing title/channel) updates the
+        // preview by itself — no separate "Generate" click needed. Debounced
+        // a touch so fast typing in the title/channel fields doesn't re-render
+        // on every keystroke.
+        useEffect(() => {
+          if (!thumbUrl) return;
+          const t = setTimeout(() => {
+            renderPoster();
+          }, 250);
+          return () => clearTimeout(t);
+        }, [thumbUrl, style, accent, ratio, title, channel, renderPoster]);
+
         const handleDownload = useCallback(() => {
           try {
             const uri = canvasRef.current.toDataURL("image/png");
@@ -2212,6 +2249,48 @@
             );
           }
         }, []);
+
+        // Visitor count: a shared counter stored in this artifact's db, bumped
+        // once per browser session (via a sessionStorage flag) and then kept
+        // live via onSnapshot so every open tab sees the same running total.
+        useEffect(() => {
+          let unsub = null;
+          let cancelled = false;
+          (async () => {
+            try {
+              if (!(window.claude && window.claude.use)) return;
+              const db = await window.claude.use("db");
+              if (!db || cancelled) return;
+              const ref = db.doc("stats/visitors");
+              unsub = ref.onSnapshot(
+                (snap) => {
+                  setVisitorCount(snap.exists ? snap.data().count || 0 : 0);
+                },
+                () => {},
+              );
+              if (!sessionStorage.getItem("pp_counted")) {
+                const holder = "v-" + Math.random().toString(36).slice(2);
+                const acquireResult = await ref.acquire({
+                  holder,
+                  ttlMs: 5000,
+                });
+                if (acquireResult.acquired) {
+                  const snap = await ref.get();
+                  const current = snap.exists ? snap.data().count || 0 : 0;
+                  await ref.set({ count: current + 1 });
+                }
+                sessionStorage.setItem("pp_counted", "1");
+              }
+            } catch (e) {
+              // best-effort only — no visitor count shown if this fails
+            }
+          })();
+          return () => {
+            cancelled = true;
+            if (unsub) unsub();
+          };
+        }, []);
+
         return /*#__PURE__*/ React.createElement(
           "div",
           {
@@ -2248,6 +2327,19 @@
                   },
                   "Turn a YouTube link into a printable poster.",
                 ),
+                visitorCount !== null &&
+                  /*#__PURE__*/ React.createElement(
+                    "div",
+                    {
+                      className: "visitor-pill mt-2.5",
+                    },
+                    /*#__PURE__*/ React.createElement("span", {
+                      className: "dot",
+                    }),
+                    visitorCount.toLocaleString(),
+                    " ",
+                    visitorCount === 1 ? "visitor" : "visitors",
+                  ),
               ),
               /*#__PURE__*/ React.createElement(
                 "div",
@@ -2450,21 +2542,12 @@
                   {
                     n: "06",
                     done: ready,
-                    title: "Render and export",
+                    title: "Download your poster",
                   },
                   /*#__PURE__*/ React.createElement(
                     "button",
                     {
                       className: "btn btn-amber w-full",
-                      onClick: handleGenerate,
-                      disabled: genState.loading,
-                    },
-                    genState.loading ? "Rendering…" : "Generate poster",
-                  ),
-                  /*#__PURE__*/ React.createElement(
-                    "button",
-                    {
-                      className: "btn w-full mt-2.5",
                       onClick: handleDownload,
                       disabled: !ready,
                     },
@@ -2520,7 +2603,7 @@
                     className:
                       "text-[11px] text-[#8f887a] mt-4 text-center max-w-[300px] leading-relaxed",
                   },
-                  "Preview updates only when you click Generate. Switch styles any time and re-generate to compare.",
+                  "The preview updates automatically whenever you change the style, color or size. When it looks right, download the PNG.",
                 ),
               ),
             ),
