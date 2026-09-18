@@ -1681,11 +1681,50 @@
         scrim.addColorStop(1, "rgba(10,9,7,0.85)");
         ctx.fillStyle = scrim;
         ctx.fillRect(0, 0, W, H);
-        // Sharp thumbnail "glass" card, centered
+
         const cardW = W - 140,
           cardH = Math.round(H * 0.46);
-        const cardX = 70,
-          cardY = 100;
+        const cardX = 70;
+
+        // Measure the text panel's content FIRST so the panel can be sized to
+        // fit it (instead of stretching all the way to the canvas bottom,
+        // which left a big empty gap under short titles).
+        const panelPadX = 34,
+          panelPadTop = 28,
+          panelPadBottom = 28,
+          cardGap = 30,
+          bottomMargin = 60;
+        const { lines, size } = fitTitle(
+          ctx,
+          title,
+          cardW - panelPadX * 2,
+          3,
+          700,
+          "Inter",
+          44,
+          26,
+        );
+        const lh = size + 10;
+        const chBlur = fitSingleLine(
+          ctx,
+          channel,
+          cardW - panelPadX * 2,
+          500,
+          24,
+          "Inter",
+        );
+        const contentH = lines.length * lh + (chBlur ? 34 : 0);
+        const panelH = Math.min(
+          H - cardH - cardGap - bottomMargin - 40,
+          contentH + panelPadTop + panelPadBottom,
+        );
+
+        // Center the whole card+panel group vertically so the composition
+        // stays balanced whether the title is one line or three.
+        const totalH = cardH + cardGap + panelH;
+        const cardY = Math.max(60, Math.round((H - totalH) / 2));
+        const panelY = cardY + cardH + cardGap;
+
         ctx.save();
         ctx.shadowColor = "rgba(0,0,0,0.5)";
         ctx.shadowBlur = 50;
@@ -1697,9 +1736,7 @@
           : "rgba(255,255,255,0.5)";
         ctx.lineWidth = 2;
         ctx.strokeRect(cardX, cardY, cardW, cardH);
-        // Frosted-glass text panel
-        const panelY = cardY + cardH + 30;
-        const panelH = H - panelY - 60;
+
         ctx.fillStyle = "rgba(255,255,255,0.10)";
         ctx.fillRect(cardX, panelY, cardW, panelH);
         ctx.strokeStyle = accent
@@ -1707,36 +1744,20 @@
           : "rgba(255,255,255,0.25)";
         ctx.lineWidth = 1;
         ctx.strokeRect(cardX, panelY, cardW, panelH);
-        const padX = cardX + 34;
+
+        const padX = cardX + panelPadX;
         ctx.textBaseline = "top";
         ctx.fillStyle = "#ffffff";
-        const { lines, size } = fitTitle(
-          ctx,
-          title,
-          cardW - 68,
-          3,
-          700,
-          "Inter",
-          44,
-          26,
-        );
-        const lh = size + 10;
-        let cursorY = panelY + 30;
+        let cursorY = panelY + panelPadTop;
         for (const line of lines) {
           ctx.fillText(line, padX, cursorY);
           cursorY += lh;
         }
-        cursorY += 10;
-        ctx.fillStyle = "rgba(255,255,255,0.75)";
-        const chBlur = fitSingleLine(
-          ctx,
-          channel,
-          cardW - 68,
-          500,
-          24,
-          "Inter",
-        );
-        if (chBlur) ctx.fillText(chBlur, padX, cursorY);
+        if (chBlur) {
+          cursorY += 8;
+          ctx.fillStyle = "rgba(255,255,255,0.75)";
+          ctx.fillText(chBlur, padX, cursorY);
+        }
       }
 
       function drawNoir(ctx, W, H, img, title, channel, accent) {
@@ -1873,38 +1894,58 @@
       }
 
       function drawSunset(ctx, W, H, img, title, channel, accent) {
-        const sky = ctx.createLinearGradient(0, 0, 0, H * 0.62);
+        const groundY = H * 0.62;
+        const sky = ctx.createLinearGradient(0, 0, 0, groundY);
         sky.addColorStop(0, "#2d1b4e");
         sky.addColorStop(0.45, "#a13d63");
         sky.addColorStop(0.75, "#e8703a");
         sky.addColorStop(1, "#ffc857");
         ctx.fillStyle = sky;
-        ctx.fillRect(0, 0, W, H * 0.62);
-        // Sun
+        ctx.fillRect(0, 0, W, groundY);
+
+        // The thumbnail lives INSIDE the sun disc (cropped to a circle) so
+        // the photo IS the sunset scene, rather than a separate boxed
+        // thumbnail competing for space with the horizon band below.
+        const sunR = W * 0.27;
+        const sunCX = W / 2,
+          sunCY = groundY - sunR * 0.85;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, 0, W, H * 0.62);
+        ctx.rect(0, 0, W, groundY);
         ctx.clip();
+        drawCoverCircle(ctx, img, sunCX, sunCY, sunR);
         ctx.beginPath();
-        ctx.arc(W / 2, H * 0.5, W * 0.28, 0, Math.PI * 2);
+        ctx.arc(sunCX, sunCY, sunR, 0, Math.PI * 2);
         ctx.fillStyle = accent
-          ? hexToRgba(accent, 0.9)
-          : "rgba(255,215,120,0.9)";
+          ? hexToRgba(accent, 0.32)
+          : "rgba(255,205,120,0.32)";
         ctx.fill();
         ctx.restore();
-        const groundY = H * 0.62;
-        drawCover(ctx, img, 0, groundY, W, H - groundY);
-        ctx.save();
-        ctx.filter = "saturate(0.7) brightness(0.6)";
-        drawCover(ctx, img, 0, groundY, W, H - groundY);
-        ctx.restore();
-        ctx.fillStyle = "rgba(20,10,20,0.35)";
+        ctx.strokeStyle = accent || "#ffc857";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(sunCX, sunCY, sunR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Horizon band — a plain gradient, kept free of imagery so the title
+        // and channel read clearly with no leftover empty space.
+        const groundGrad = ctx.createLinearGradient(0, groundY, 0, H);
+        groundGrad.addColorStop(0, "#22123a");
+        groundGrad.addColorStop(1, "#0e0818");
+        ctx.fillStyle = groundGrad;
         ctx.fillRect(0, groundY, W, H - groundY);
-        const grad = ctx.createLinearGradient(0, groundY, 0, groundY + 40);
-        grad.addColorStop(0, "rgba(45,27,78,0.9)");
-        grad.addColorStop(1, "rgba(45,27,78,0)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, groundY - 10, W, 60);
+        ctx.fillStyle = accent
+          ? hexToRgba(accent, 0.16)
+          : "rgba(255,180,100,0.16)";
+        ctx.beginPath();
+        ctx.moveTo(0, groundY + 26);
+        ctx.quadraticCurveTo(W * 0.25, groundY - 6, W * 0.5, groundY + 20);
+        ctx.quadraticCurveTo(W * 0.75, groundY + 46, W, groundY + 14);
+        ctx.lineTo(W, groundY + 90);
+        ctx.lineTo(0, groundY + 90);
+        ctx.closePath();
+        ctx.fill();
+
         const padX = 66;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -1920,7 +1961,7 @@
           38,
         );
         const lh = size + 8;
-        let cursorY = groundY + 40;
+        let cursorY = groundY + 58;
         for (const line of lines) {
           ctx.fillText(line, W / 2, cursorY);
           cursorY += lh;
@@ -2129,6 +2170,7 @@
         });
         const [ready, setReady] = useState(false);
         const [visitorCount, setVisitorCount] = useState(null);
+        const [visitorState, setVisitorState] = useState("loading"); // 'loading' | 'ready' | 'unavailable'
         const canvasRef = useRef(null);
         const handleFetch = useCallback(async () => {
           const videoId = extractVideoId(url.trim());
@@ -2258,15 +2300,35 @@
           let cancelled = false;
           (async () => {
             try {
-              if (!(window.claude && window.claude.use)) return;
+              if (!(window.claude && window.claude.use)) {
+                console.warn(
+                  "Poster Press: window.claude not available — visitor count disabled.",
+                );
+                setVisitorState("unavailable");
+                return;
+              }
               const db = await window.claude.use("db");
-              if (!db || cancelled) return;
+              if (cancelled) return;
+              if (!db) {
+                console.warn(
+                  "Poster Press: db capability not granted for this view — visitor count disabled.",
+                );
+                setVisitorState("unavailable");
+                return;
+              }
               const ref = db.doc("stats/visitors");
               unsub = ref.onSnapshot(
                 (snap) => {
                   setVisitorCount(snap.exists ? snap.data().count || 0 : 0);
+                  setVisitorState("ready");
                 },
-                () => {},
+                (err) => {
+                  console.warn(
+                    "Poster Press: visitor count subscription error",
+                    err,
+                  );
+                  setVisitorState("unavailable");
+                },
               );
               if (!sessionStorage.getItem("pp_counted")) {
                 const holder = "v-" + Math.random().toString(36).slice(2);
@@ -2282,7 +2344,8 @@
                 sessionStorage.setItem("pp_counted", "1");
               }
             } catch (e) {
-              // best-effort only — no visitor count shown if this fails
+              console.warn("Poster Press: visitor count failed", e);
+              setVisitorState("unavailable");
             }
           })();
           return () => {
@@ -2327,7 +2390,7 @@
                   },
                   "Turn a YouTube link into a printable poster.",
                 ),
-                visitorCount !== null &&
+                visitorState !== "unavailable" &&
                   /*#__PURE__*/ React.createElement(
                     "div",
                     {
@@ -2336,9 +2399,11 @@
                     /*#__PURE__*/ React.createElement("span", {
                       className: "dot",
                     }),
-                    visitorCount.toLocaleString(),
-                    " ",
-                    visitorCount === 1 ? "visitor" : "visitors",
+                    visitorState === "ready" && visitorCount !== null
+                      ? visitorCount.toLocaleString() +
+                          " " +
+                          (visitorCount === 1 ? "visitor" : "visitors")
+                      : "counting visitors…",
                   ),
               ),
               /*#__PURE__*/ React.createElement(
