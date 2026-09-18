@@ -2295,57 +2295,86 @@
         // Visitor count: a shared counter stored in this artifact's db, bumped
         // once per browser session (via a sessionStorage flag) and then kept
         // live via onSnapshot so every open tab sees the same running total.
+        // Visitor count. Two paths, tried in order, so this works both when
+        // opened as a Claude artifact AND when self-hosted elsewhere (e.g. on
+        // Vercel), where Claude's built-in per-artifact storage isn't
+        // available:
+        //  1) Claude's db capability — only present when this page is opened
+        //     as a published claude.ai artifact.
+        //  2) countapi.xyz — a free, no-signup public hit-counter API, used
+        //     as a fallback for any other hosting (self-hosted, Vercel, etc).
+        // Counted once per browser session (sessionStorage flag) either way.
         useEffect(() => {
           let unsub = null;
           let cancelled = false;
-          (async () => {
+
+          async function viaCountApi() {
             try {
-              if (!(window.claude && window.claude.use)) {
-                console.warn(
-                  "Poster Press: window.claude not available — visitor count disabled.",
-                );
-                setVisitorState("unavailable");
-                return;
-              }
-              const db = await window.claude.use("db");
+              const already = sessionStorage.getItem("pp_counted");
+              const url = already
+                ? "https://api.countapi.xyz/get/poster-press-app/visits"
+                : "https://api.countapi.xyz/hit/poster-press-app/visits";
+              const res = await fetch(url);
+              if (!res.ok) throw new Error("bad status");
+              const data = await res.json();
               if (cancelled) return;
-              if (!db) {
-                console.warn(
-                  "Poster Press: db capability not granted for this view — visitor count disabled.",
-                );
-                setVisitorState("unavailable");
-                return;
-              }
-              const ref = db.doc("stats/visitors");
-              unsub = ref.onSnapshot(
-                (snap) => {
-                  setVisitorCount(snap.exists ? snap.data().count || 0 : 0);
-                  setVisitorState("ready");
-                },
-                (err) => {
-                  console.warn(
-                    "Poster Press: visitor count subscription error",
-                    err,
-                  );
-                  setVisitorState("unavailable");
-                },
-              );
-              if (!sessionStorage.getItem("pp_counted")) {
-                const holder = "v-" + Math.random().toString(36).slice(2);
-                const acquireResult = await ref.acquire({
-                  holder,
-                  ttlMs: 5000,
-                });
-                if (acquireResult.acquired) {
-                  const snap = await ref.get();
-                  const current = snap.exists ? snap.data().count || 0 : 0;
-                  await ref.set({ count: current + 1 });
-                }
+              if (typeof data.value === "number") {
+                setVisitorCount(data.value);
+                setVisitorState("ready");
                 sessionStorage.setItem("pp_counted", "1");
+              } else {
+                setVisitorState("unavailable");
               }
             } catch (e) {
-              console.warn("Poster Press: visitor count failed", e);
-              setVisitorState("unavailable");
+              console.warn("Poster Press: visitor count (countapi) failed", e);
+              if (!cancelled) setVisitorState("unavailable");
+            }
+          }
+
+          (async () => {
+            try {
+              if (window.claude && window.claude.use) {
+                const db = await window.claude.use("db");
+                if (!cancelled && db) {
+                  const ref = db.doc("stats/visitors");
+                  unsub = ref.onSnapshot(
+                    (snap) => {
+                      setVisitorCount(snap.exists ? snap.data().count || 0 : 0);
+                      setVisitorState("ready");
+                    },
+                    (err) => {
+                      console.warn(
+                        "Poster Press: visitor count subscription error",
+                        err,
+                      );
+                      setVisitorState("unavailable");
+                    },
+                  );
+                  if (!sessionStorage.getItem("pp_counted")) {
+                    const holder = "v-" + Math.random().toString(36).slice(2);
+                    const acquireResult = await ref.acquire({
+                      holder,
+                      ttlMs: 5000,
+                    });
+                    if (acquireResult.acquired) {
+                      const snap = await ref.get();
+                      const current = snap.exists ? snap.data().count || 0 : 0;
+                      await ref.set({ count: current + 1 });
+                    }
+                    sessionStorage.setItem("pp_counted", "1");
+                  }
+                  return;
+                }
+              }
+              // Not running as a Claude artifact (or db not granted) — fall
+              // back to the public counter API instead.
+              await viaCountApi();
+            } catch (e) {
+              console.warn(
+                "Poster Press: Claude db path failed, falling back",
+                e,
+              );
+              if (!cancelled) await viaCountApi();
             }
           })();
           return () => {
